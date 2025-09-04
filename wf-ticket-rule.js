@@ -8,7 +8,6 @@
  */
 
 async function run() {
-  // ---------- Config & helpers ----------
   const VALID_RE = /#WF-\d{8}\b$/;                 // valid trailing token
   const ANY_WF_RE = /#\s*wf[-\s_]?(\d{1,8})\b/gi;  // legacy/malformed tokens anywhere
 
@@ -84,18 +83,17 @@ async function run() {
   // ---------- Build map of already-used tokens in this project ----------
   const projectTasks = await fetchAllProjectTasks(project_gid);
   const tokenOwners = new Map(); // tokenDigits -> [taskGid, ...]
-
   for (const t of projectTasks) {
     const m = String(t.name || "").match(VALID_RE);
     if (m) {
-      const tok = m[0].slice(4); // keep just 8 digits
+      const tok = m[0].slice(4); // just the 8 digits
       const arr = tokenOwners.get(tok) || [];
       arr.push(t.gid);
       tokenOwners.set(tok, arr);
     }
   }
 
-  // If title already ends with a valid token and it's unique → exit
+  // Already has a valid unique token? exit.
   const currentValid = originalName.match(VALID_RE);
   if (currentValid) {
     const tok = currentValid[0].slice(4);
@@ -106,7 +104,7 @@ async function run() {
     }
   }
 
-  // Clean up legacy tokens and normalize spaces
+  // Clean legacy tokens and normalize spaces
   const baseTitle = squashSpaces(originalName.replace(ANY_WF_RE, ""));
 
   // Deterministic candidate from task GID; bump salt until unused
@@ -119,16 +117,15 @@ async function run() {
 
   const finalTitle = `${baseTitle} #WF-${candidate}`;
 
-  // Optional: sync numeric custom field "WF Ticket #"
-  const update = { name: finalTitle };
+  // ---------- Update task (SDK v3 expects { data: ... }) ----------
+  const updateData = { name: finalTitle };
   const wfField = (task.custom_fields || []).find(
     (f) => f && f.name === "WF Ticket #" && f.type === "number"
   );
   if (wfField) {
-    update.custom_fields = { [wfField.gid]: Number(candidate) };
+    updateData.custom_fields = { [wfField.gid]: Number(candidate) };
   }
-
-  await tasksApiInstance.updateTask(task.gid, update);
+  await tasksApiInstance.updateTask(task.gid, { data: updateData }); // <-- important wrapper
   log(`Updated → "${finalTitle}"${wfField ? " + set WF Ticket #." : ""}`);
 }
 
